@@ -175,11 +175,12 @@ func toModelDefFileConfig(def config.ModelDef) config.ModelDefFileConfig {
 			}
 		}
 	}
-	if def.WebSearch.Support != "" || def.WebSearch.MaxUses > 0 || def.WebSearch.TavilyAPIKey != "" || def.WebSearch.FirecrawlAPIKey != "" || def.WebSearch.SearchMaxRounds > 0 {
+	if def.WebSearch.Support != "" || def.WebSearch.MaxUses > 0 || def.WebSearch.TavilyAPIKey != "" || def.WebSearch.MetasoAPIKey != "" || def.WebSearch.FirecrawlAPIKey != "" || def.WebSearch.SearchMaxRounds > 0 {
 		m.WebSearch = config.WebSearchFileConfig{
 			Support:         string(def.WebSearch.Support),
 			MaxUses:         def.WebSearch.MaxUses,
 			TavilyAPIKey:    def.WebSearch.TavilyAPIKey,
+			MetasoAPIKey:    def.WebSearch.MetasoAPIKey,
 			FirecrawlAPIKey: def.WebSearch.FirecrawlAPIKey,
 			SearchMaxRounds: def.WebSearch.SearchMaxRounds,
 		}
@@ -917,6 +918,9 @@ func maskSecrets(fc *config.FileConfig) {
 		if ws.TavilyAPIKey != "" {
 			ws.TavilyAPIKey = maskAPIKey(ws.TavilyAPIKey)
 		}
+		if ws.MetasoAPIKey != "" {
+			ws.MetasoAPIKey = maskAPIKey(ws.MetasoAPIKey)
+		}
 		if ws.FirecrawlAPIKey != "" {
 			ws.FirecrawlAPIKey = maskAPIKey(ws.FirecrawlAPIKey)
 		}
@@ -928,6 +932,9 @@ func maskSecrets(fc *config.FileConfig) {
 	ws := fc.WebSearch
 	if ws.TavilyAPIKey != "" {
 		ws.TavilyAPIKey = maskAPIKey(ws.TavilyAPIKey)
+	}
+	if ws.MetasoAPIKey != "" {
+		ws.MetasoAPIKey = maskAPIKey(ws.MetasoAPIKey)
 	}
 	if ws.FirecrawlAPIKey != "" {
 		ws.FirecrawlAPIKey = maskAPIKey(ws.FirecrawlAPIKey)

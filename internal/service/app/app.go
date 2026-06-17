@@ -554,13 +554,13 @@ func resolveModelWebSearchWithProber(ctx context.Context, modelAlias, providerKe
 }
 
 func injectedSearchConfigured(cfg config.Config, modelAlias, providerKey string) bool {
-	if cfg.WebSearchTavilyKeyForModel(modelAlias) != "" || cfg.WebSearchFirecrawlKeyForModel(modelAlias) != "" {
+	if cfg.WebSearchTavilyKeyForModel(modelAlias) != "" || cfg.WebSearchMetasoKeyForModel(modelAlias) != "" {
 		return true
 	}
 	if providerKey == "" {
 		return false
 	}
-	return cfg.WebSearchTavilyKeyForProvider(providerKey) != "" || cfg.WebSearchFirecrawlKeyForProvider(providerKey) != ""
+	return cfg.WebSearchTavilyKeyForProvider(providerKey) != "" || cfg.WebSearchMetasoKeyForProvider(providerKey) != ""
 }
 
 func runCaptureResponse(ctx context.Context, cfg config.Config, errors io.Writer) error {

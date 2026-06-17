@@ -31,6 +31,7 @@ func (cfg Config) ToFileConfig() FileConfig {
 			Support:         string(cfg.WebSearchSupport),
 			MaxUses:         cfg.WebSearchMaxUses,
 			TavilyAPIKey:    cfg.TavilyAPIKey,
+			MetasoAPIKey:    cfg.MetasoAPIKey,
 			FirecrawlAPIKey: cfg.FirecrawlAPIKey,
 			SearchMaxRounds: cfg.SearchMaxRounds,
 		},
@@ -148,6 +149,7 @@ func toProviderDefFileConfig(def ProviderDef) ProviderDefFileConfig {
 			Support:         string(def.WebSearchSupport),
 			MaxUses:         def.WebSearchMaxUses,
 			TavilyAPIKey:    def.TavilyAPIKey,
+			MetasoAPIKey:    def.MetasoAPIKey,
 			FirecrawlAPIKey: def.FirecrawlAPIKey,
 			SearchMaxRounds: def.SearchMaxRounds,
 		},
@@ -220,6 +222,7 @@ func toWebSearchFileConfig(ws WebSearchConfig) WebSearchFileConfig {
 		Support:         string(ws.Support),
 		MaxUses:         ws.MaxUses,
 		TavilyAPIKey:    ws.TavilyAPIKey,
+		MetasoAPIKey:    ws.MetasoAPIKey,
 		FirecrawlAPIKey: ws.FirecrawlAPIKey,
 		SearchMaxRounds: ws.SearchMaxRounds,
 	}
