@@ -88,7 +88,7 @@ type OutputItem struct {
 	Arguments string                 `json:"arguments,omitempty"`
 	Input     string                 `json:"input,omitempty"`
 	Action    *ToolAction            `json:"action,omitempty"`
-	Summary   []ReasoningItemSummary `json:"summary,omitempty"`
+	Summary   []ReasoningItemSummary `json:"summary"`
 }
 
 // ToolAction describes an action associated with a tool.
