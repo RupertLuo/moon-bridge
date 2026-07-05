@@ -89,6 +89,61 @@ func TestToCoreRequest_AppendsInjectedTools(t *testing.T) {
 	}
 }
 
+func TestToCoreRequest_PreservesFunctionToolNamespaceForMCPRouting(t *testing.T) {
+	adapter := openai.NewOpenAIAdapter(format.CorePluginHooks{})
+	var req openai.ResponsesRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"deepseek-v4-pro",
+		"input":"search the web",
+		"tools":[{
+			"type":"function",
+			"name":"search",
+			"namespace":"mcp__catalyst_search",
+			"description":"Search public sources through Catalyst.",
+			"parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}
+		}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+
+	coreReq, err := adapter.ToCoreRequest(context.Background(), &req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(coreReq.Tools) != 1 {
+		t.Fatalf("tools = %d, want 1: %+v", len(coreReq.Tools), coreReq.Tools)
+	}
+	if coreReq.Tools[0].Name != "mcp__catalyst_search_search" {
+		t.Fatalf("provider tool name = %q, want namespaced MCP search", coreReq.Tools[0].Name)
+	}
+
+	coreResp := &format.CoreResponse{
+		ID:         "resp_mcp_search",
+		Status:     "completed",
+		Extensions: coreReq.Extensions,
+		Messages: []format.CoreMessage{{
+			Role: "assistant",
+			Content: []format.CoreContentBlock{{
+				Type:      "tool_use",
+				ToolUseID: "call_mcp_search",
+				ToolName:  coreReq.Tools[0].Name,
+				ToolInput: json.RawMessage(`{"query":"World Cup"}`),
+			}},
+		}},
+	}
+	converted, err := adapter.FromCoreResponse(context.Background(), coreResp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := converted.(*openai.Response)
+	if len(resp.Output) != 1 {
+		t.Fatalf("output = %d, want 1: %+v", len(resp.Output), resp.Output)
+	}
+	if resp.Output[0].Name != "search" || resp.Output[0].Namespace != "mcp__catalyst_search" {
+		t.Fatalf("MCP function identity = %q/%q, want mcp__catalyst_search/search", resp.Output[0].Namespace, resp.Output[0].Name)
+	}
+}
+
 func TestToCoreRequest_FunctionCallOutputImage(t *testing.T) {
 	adapter := openai.NewOpenAIAdapter(format.CorePluginHooks{})
 
@@ -294,8 +349,8 @@ func TestToCoreRequest_BatchesCustomToolCallsAndOutputsIntoSingleRound(t *testin
 	for i, want := range []struct {
 		assistantTextIdx int
 		msgIdx           int
-		callID  string
-		outcome string
+		callID           string
+		outcome          string
 	}{
 		{0, 1, "call_a", "ok a"},
 		{3, 4, "call_b", "ok b"},

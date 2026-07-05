@@ -44,6 +44,7 @@ type ResponsesRequest struct {
 type Tool struct {
 	Type               string         `json:"type"`
 	Name               string         `json:"name,omitempty"`
+	Namespace          string         `json:"namespace,omitempty"`
 	Description        string         `json:"description,omitempty"`
 	Parameters         map[string]any `json:"parameters,omitempty"`
 	Strict             *bool          `json:"strict,omitempty"`
@@ -116,10 +117,10 @@ type ContentPart struct {
 
 // Usage represents token usage statistics.
 type Usage struct {
-	InputTokens        int                `json:"input_tokens,omitempty"`
-	OutputTokens       int                `json:"output_tokens,omitempty"`
-	TotalTokens        int                `json:"total_tokens"`
-	InputTokensDetails InputTokensDetails `json:"input_tokens_details,omitempty"`
+	InputTokens         int                 `json:"input_tokens,omitempty"`
+	OutputTokens        int                 `json:"output_tokens,omitempty"`
+	TotalTokens         int                 `json:"total_tokens"`
+	InputTokensDetails  InputTokensDetails  `json:"input_tokens_details,omitempty"`
 	OutputTokensDetails OutputTokensDetails `json:"output_tokens_details,omitempty"`
 }
 
