@@ -40,6 +40,9 @@ func NamespacedToolName(namespace, name string) string {
 	if name == "" {
 		return namespace
 	}
+	if strings.HasSuffix(namespace, "_") {
+		return namespace + name
+	}
 	return namespace + "_" + name
 }
 

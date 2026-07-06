@@ -6,6 +6,24 @@ import (
 	"testing"
 )
 
+func TestNamespacedToolNamePreservesExistingSeparator(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		namespace string
+		tool      string
+		want      string
+	}{
+		{name: "plain namespace", namespace: "mcp__catalyst_search", tool: "search", want: "mcp__catalyst_search_search"},
+		{name: "codex namespace", namespace: "mcp__catalyst_search__", tool: "read_url", want: "mcp__catalyst_search__read_url"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := NamespacedToolName(testCase.namespace, testCase.tool); got != testCase.want {
+				t.Fatalf("NamespacedToolName(%q, %q) = %q, want %q", testCase.namespace, testCase.tool, got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestRebuildApplyPatchGrammarUpdateFileIncludesValidPatchMarkers(t *testing.T) {
 	input := json.RawMessage(`{
 		"path":"internal/example.go",
