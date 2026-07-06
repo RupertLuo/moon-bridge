@@ -95,6 +95,7 @@ var (
 		"support":           {},
 		"max_uses":          {},
 		"tavily_api_key":    {},
+		"metaso_api_key":    {},
 		"firecrawl_api_key": {},
 		"search_max_rounds": {},
 	}

@@ -20,8 +20,8 @@ type ToolHandler func(context.Context, json.RawMessage) (string, error)
 // It presents the same interface as anthropic.Client to callers.
 type Orchestrator struct {
 	anthropic    *anthropic.Client
-	tavily       *TavilyClient
-	firecrawl    *FirecrawlClient
+	searchClient SearchClient
+	fetchClient  FetchClient
 	maxRounds    int
 	toolHandlers map[string]ToolHandler
 }
@@ -30,6 +30,7 @@ type Orchestrator struct {
 type OrchestratorConfig struct {
 	Anthropic       *anthropic.Client
 	TavilyKey       string
+	MetasoKey       string
 	FirecrawlKey    string
 	SearchMaxRounds int
 	ToolHandlers    map[string]ToolHandler
@@ -39,12 +40,10 @@ type OrchestratorConfig struct {
 // handlers for web_search and web_fetch tool names.
 func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	o := &Orchestrator{
-		anthropic: cfg.Anthropic,
-		tavily:    NewTavilyClient(cfg.TavilyKey),
-		maxRounds: cfg.SearchMaxRounds,
-	}
-	if cfg.FirecrawlKey != "" {
-		o.firecrawl = NewFirecrawlClient(cfg.FirecrawlKey)
+		anthropic:    cfg.Anthropic,
+		searchClient: NewSearchClient(cfg.TavilyKey, cfg.MetasoKey),
+		fetchClient:  NewFetchClient(cfg.MetasoKey, cfg.FirecrawlKey),
+		maxRounds:    cfg.SearchMaxRounds,
 	}
 	if o.maxRounds <= 0 {
 		o.maxRounds = 5
@@ -53,11 +52,11 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	o.toolHandlers = cfg.ToolHandlers
 	if o.toolHandlers == nil {
 		o.toolHandlers = map[string]ToolHandler{
-			"web_search": o.executeTavilySearch,
-			"web_fetch":  o.executeFirecrawlFetch,
+			"web_search":         o.executeWebSearch,
+			"web_search_preview": o.executeWebSearch,
+			"web_fetch":          o.executeWebFetch,
 		}
-		// Only register web_fetch if Firecrawl is configured
-		if cfg.FirecrawlKey == "" {
+		if o.fetchClient == nil || !o.fetchClient.Enabled() {
 			delete(o.toolHandlers, "web_fetch")
 		}
 	}
@@ -69,22 +68,34 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 // to the provider.
 func NewInjectedOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	o := &Orchestrator{
-		anthropic: cfg.Anthropic,
-		tavily:    NewTavilyClient(cfg.TavilyKey),
-		maxRounds: cfg.SearchMaxRounds,
-	}
-	if cfg.FirecrawlKey != "" {
-		o.firecrawl = NewFirecrawlClient(cfg.FirecrawlKey)
+		anthropic:    cfg.Anthropic,
+		searchClient: NewSearchClient(cfg.TavilyKey, cfg.MetasoKey),
+		fetchClient:  NewFetchClient(cfg.MetasoKey, cfg.FirecrawlKey),
+		maxRounds:    cfg.SearchMaxRounds,
 	}
 	if o.maxRounds <= 0 {
 		o.maxRounds = 5
 	}
-	o.toolHandlers = map[string]ToolHandler{
-		"tavily_search":   o.executeTavilySearch,
-		"firecrawl_fetch": o.executeFirecrawlFetch,
+	if cfg.MetasoKey != "" {
+		o.toolHandlers = map[string]ToolHandler{
+			"web_search":         o.executeWebSearch,
+			"web_search_preview": o.executeWebSearch,
+			"metaso_search":      o.executeWebSearch,
+			"web_fetch":          o.executeWebFetch,
+			"metaso_fetch":       o.executeWebFetch,
+		}
+	} else {
+		o.toolHandlers = map[string]ToolHandler{
+			"tavily_search":      o.executeWebSearch,
+			"web_search":         o.executeWebSearch,
+			"web_search_preview": o.executeWebSearch,
+			"firecrawl_fetch":    o.executeWebFetch,
+		}
 	}
-	if cfg.FirecrawlKey == "" {
+	if o.fetchClient == nil || !o.fetchClient.Enabled() {
 		delete(o.toolHandlers, "firecrawl_fetch")
+		delete(o.toolHandlers, "web_fetch")
+		delete(o.toolHandlers, "metaso_fetch")
 	}
 	return o
 }
@@ -245,7 +256,7 @@ func (o *Orchestrator) StreamMessage(ctx context.Context, req anthropic.MessageR
 	return nil, fmt.Errorf("stream search loop exceeded max rounds (%d)", o.maxRounds)
 }
 
-// executeSearch runs a Tavily search or Firecrawl fetch based on the tool_use block.
+// executeSearch runs a configured search or fetch tool based on the tool_use block.
 func (o *Orchestrator) executeSearch(ctx context.Context, tu anthropic.ContentBlock) (string, error) {
 	handler, ok := o.toolHandlers[tu.Name]
 	if !ok {
@@ -254,7 +265,7 @@ func (o *Orchestrator) executeSearch(ctx context.Context, tu anthropic.ContentBl
 	return handler(ctx, tu.Input)
 }
 
-func (o *Orchestrator) executeTavilySearch(ctx context.Context, raw json.RawMessage) (string, error) {
+func (o *Orchestrator) executeWebSearch(ctx context.Context, raw json.RawMessage) (string, error) {
 	var params struct {
 		Query          string   `json:"query"`
 		SearchDepth    string   `json:"search_depth,omitempty"`
@@ -271,8 +282,11 @@ func (o *Orchestrator) executeTavilySearch(ctx context.Context, raw json.RawMess
 	if params.Query == "" {
 		return "", fmt.Errorf("search: query is required")
 	}
+	if o.searchClient == nil {
+		return "", fmt.Errorf("search not configured")
+	}
 
-	result, err := o.tavily.Search(ctx, SearchRequest{
+	result, err := o.searchClient.Search(ctx, SearchRequest{
 		Query:          params.Query,
 		SearchDepth:    params.SearchDepth,
 		Topic:          params.Topic,
@@ -288,7 +302,7 @@ func (o *Orchestrator) executeTavilySearch(ctx context.Context, raw json.RawMess
 	return FormatTavilyResults(result), nil
 }
 
-func (o *Orchestrator) executeFirecrawlFetch(ctx context.Context, raw json.RawMessage) (string, error) {
+func (o *Orchestrator) executeWebFetch(ctx context.Context, raw json.RawMessage) (string, error) {
 	var params struct {
 		URL string `json:"url"`
 	}
@@ -298,8 +312,11 @@ func (o *Orchestrator) executeFirecrawlFetch(ctx context.Context, raw json.RawMe
 	if params.URL == "" {
 		return "", fmt.Errorf("fetch: url is required")
 	}
+	if o.fetchClient == nil || !o.fetchClient.Enabled() {
+		return "", fmt.Errorf("fetch not configured")
+	}
 
-	result, err := o.firecrawl.Fetch(ctx, FetchRequest{
+	result, err := o.fetchClient.Fetch(ctx, FetchRequest{
 		URL:             params.URL,
 		Formats:         []string{"markdown"},
 		OnlyMainContent: true,
@@ -351,7 +368,7 @@ func (o *Orchestrator) filterSearchTools(toolUses []anthropic.ContentBlock) []an
 	return searchUses
 }
 
-// formatTavilyResults formats Tavily search results as a readable text block.
+// FormatTavilyResults formats provider-neutral search results as a readable text block.
 func FormatTavilyResults(result *SearchResult) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Search results for %q:\n\n", result.Query))
@@ -371,6 +388,12 @@ func FormatTavilyResults(result *SearchResult) string {
 		b.WriteString(fmt.Sprintf("   %s\n\n", Truncate(item.Content, 500)))
 	}
 	return b.String()
+}
+
+// formatTavilyResults is kept for callers/tests that still use the historical
+// function name; it now formats provider-neutral search results.
+func formatTavilyResults(result *SearchResult) string {
+	return FormatTavilyResults(result)
 }
 
 // formatFirecrawlResult formats Firecrawl scrape results as a readable text block.

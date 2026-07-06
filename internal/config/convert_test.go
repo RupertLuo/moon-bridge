@@ -26,6 +26,7 @@ web_search:
   support: auto
   max_uses: 10
   tavily_api_key: tvly-key
+  metaso_api_key: mk-key
   search_max_rounds: 8
 cache:
   mode: explicit
@@ -103,6 +104,7 @@ routes:
 	checkStringEqual(t, "WebSearchSupport", string(cfg.WebSearchSupport), string(cfg2.WebSearchSupport))
 	checkIntEqual(t, "WebSearchMaxUses", cfg.WebSearchMaxUses, cfg2.WebSearchMaxUses)
 	checkStringEqual(t, "TavilyAPIKey", cfg.TavilyAPIKey, cfg2.TavilyAPIKey)
+	checkStringEqual(t, "MetasoAPIKey", cfg.MetasoAPIKey, cfg2.MetasoAPIKey)
 	checkIntEqual(t, "SearchMaxRounds", cfg.SearchMaxRounds, cfg2.SearchMaxRounds)
 	checkStringEqual(t, "Persistence.ActiveProvider", cfg.Persistence.ActiveProvider, cfg2.Persistence.ActiveProvider)
 

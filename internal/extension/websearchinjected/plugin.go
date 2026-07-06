@@ -29,7 +29,7 @@ func (p *WSInjectedPlugin) EnabledForModel(model string) bool { return p.isEnabl
 // --- ToolInjector ---
 
 func (p *WSInjectedPlugin) InjectTools(ctx *plugin.RequestContext) []format.CoreTool {
-	return CoreTools(ctx.WebSearch.FirecrawlKey)
+	return CoreTools(ctx.WebSearch.FirecrawlKey, ctx.WebSearch.MetasoKey)
 }
 
 // --- ProviderWrapper ---
@@ -41,6 +41,7 @@ func (p *WSInjectedPlugin) WrapProvider(ctx *plugin.RequestContext, wrapped any)
 		return websearch.NewInjectedOrchestrator(websearch.OrchestratorConfig{
 			Anthropic:       client,
 			TavilyKey:       "", // resolved from config at call site
+			MetasoKey:       ctx.WebSearch.MetasoKey,
 			FirecrawlKey:    ctx.WebSearch.FirecrawlKey,
 			SearchMaxRounds: 5,
 		})
@@ -50,6 +51,7 @@ func (p *WSInjectedPlugin) WrapProvider(ctx *plugin.RequestContext, wrapped any)
 		return websearch.NewInjectedOrchestrator(websearch.OrchestratorConfig{
 			Anthropic:       client,
 			TavilyKey:       "", // resolved from config at call site
+			MetasoKey:       ctx.WebSearch.MetasoKey,
 			FirecrawlKey:    ctx.WebSearch.FirecrawlKey,
 			SearchMaxRounds: 5,
 		})

@@ -9,6 +9,7 @@ type ProviderConfig struct {
 	WebSearchSupport WebSearchSupport
 	WebSearchMaxUses int
 	TavilyAPIKey     string
+	MetasoAPIKey     string
 	FirecrawlAPIKey  string
 	SearchMaxRounds  int
 }
@@ -23,6 +24,7 @@ func ProviderFromGlobalConfig(cfg *Config) ProviderConfig {
 		WebSearchSupport: cfg.WebSearchSupport,
 		WebSearchMaxUses: cfg.WebSearchMaxUses,
 		TavilyAPIKey:     cfg.TavilyAPIKey,
+		MetasoAPIKey:     cfg.MetasoAPIKey,
 		FirecrawlAPIKey:  cfg.FirecrawlAPIKey,
 		SearchMaxRounds:  cfg.SearchMaxRounds,
 	}

@@ -265,7 +265,7 @@ func (s *Server) handleWithAdapters(
 			if acc, ok := effectiveProvider.(provider.AnthropicClientAccessor); ok {
 				wrapped := websearchinjected.WrapProvider(
 					acc.AnthropicClient(),
-					searchCfg.tavilyKey, searchCfg.firecrawlKey, searchCfg.maxRounds,
+					searchCfg.tavilyKey, searchCfg.metasoKey, searchCfg.firecrawlKey, searchCfg.maxRounds,
 				)
 				effectiveProvider = &searchProviderAdapter{wrapped: wrapped}
 			}
@@ -413,7 +413,7 @@ func (s *Server) handleWithAdapters(
 
 		var chatResp *chat.ChatResponse
 		if wsInjected {
-			chatResp, err = s.executeChatSearchLoop(ctx, chatClient, chatReq, searchCfg.tavilyKey, searchCfg.firecrawlKey, searchCfg.maxRounds)
+			chatResp, err = s.executeChatSearchLoop(ctx, chatClient, chatReq, searchCfg.tavilyKey, searchCfg.metasoKey, searchCfg.firecrawlKey, searchCfg.maxRounds)
 		} else {
 			chatResp, err = chatClient.CreateChat(ctx, chatReq)
 		}
@@ -543,7 +543,7 @@ func (s *Server) handleWithAdapters(
 
 		var googleResp *google.GenerateContentResponse
 		if wsInjected {
-			googleResp, err = s.executeGoogleSearchLoop(ctx, googleClient, preferred.UpstreamModel, googleReq, searchCfg.tavilyKey, searchCfg.firecrawlKey, searchCfg.maxRounds)
+			googleResp, err = s.executeGoogleSearchLoop(ctx, googleClient, preferred.UpstreamModel, googleReq, searchCfg.tavilyKey, searchCfg.metasoKey, searchCfg.firecrawlKey, searchCfg.maxRounds)
 		} else {
 			googleResp, err = googleClient.GenerateContent(ctx, preferred.UpstreamModel, googleReq)
 		}
@@ -1206,7 +1206,7 @@ func (s *Server) handleAdapterStream(
 
 		if wsInjected {
 			searchCfg := s.resolvedSearchConfig(candidate.ProviderKey, openAIReq.Model)
-			chatStream, err = s.chatSearchBufferedStream(ctx, chatClient, chatReq, searchCfg.tavilyKey, searchCfg.firecrawlKey, searchCfg.maxRounds)
+			chatStream, err = s.chatSearchBufferedStream(ctx, chatClient, chatReq, searchCfg.tavilyKey, searchCfg.metasoKey, searchCfg.firecrawlKey, searchCfg.maxRounds)
 		} else {
 			chatStream, err = chatClient.StreamChat(ctx, chatReq)
 		}
@@ -1343,7 +1343,7 @@ func (s *Server) handleAdapterStream(
 
 		if wsInjected {
 			searchCfg := s.resolvedSearchConfig(candidate.ProviderKey, openAIReq.Model)
-			googleResp, err := s.executeGoogleSearchLoop(ctx, googleClient, candidate.UpstreamModel, googleReq, searchCfg.tavilyKey, searchCfg.firecrawlKey, searchCfg.maxRounds)
+			googleResp, err := s.executeGoogleSearchLoop(ctx, googleClient, candidate.UpstreamModel, googleReq, searchCfg.tavilyKey, searchCfg.metasoKey, searchCfg.firecrawlKey, searchCfg.maxRounds)
 			if err != nil {
 				log.Error("adapter stream: injected google search loop failed", "error", err)
 				payload := openai.ErrorResponse{
@@ -2384,7 +2384,7 @@ func (s *Server) injectCoreWebSearch(ctx context.Context, coreReq *format.CoreRe
 		return false
 	}
 	searchCfg := s.resolvedSearchConfig(preferred.ProviderKey, openAIReq.Model)
-	if searchCfg.tavilyKey == "" && searchCfg.firecrawlKey == "" {
+	if searchCfg.tavilyKey == "" && searchCfg.metasoKey == "" {
 		return false
 	}
 
@@ -2395,7 +2395,7 @@ func (s *Server) injectCoreWebSearch(ctx context.Context, coreReq *format.CoreRe
 			filtered = append(filtered, t)
 		}
 	}
-	injected := websearchinjected.CoreTools(searchCfg.firecrawlKey)
+	injected := websearchinjected.CoreTools(searchCfg.firecrawlKey, searchCfg.metasoKey)
 	filtered = append(filtered, injected...)
 	coreReq.Tools = filtered
 	// Set tool_choice to auto so the model has freedom to call tavily_search.
@@ -2487,6 +2487,7 @@ func (a *searchProviderAdapter) AnthropicClient() *anthropic.Client { return nil
 
 type searchConfig struct {
 	tavilyKey    string
+	metasoKey    string
 	firecrawlKey string
 	maxRounds    int
 }
@@ -2495,6 +2496,7 @@ func (s *Server) resolvedSearchConfig(providerKey, modelAlias string) searchConf
 	// Keep a conservative fallback to existing global/runtime behavior.
 	cfg := searchConfig{
 		tavilyKey:    "",
+		metasoKey:    "",
 		firecrawlKey: "",
 		maxRounds:    s.maxSearchRounds(),
 	}
@@ -2503,12 +2505,16 @@ func (s *Server) resolvedSearchConfig(providerKey, modelAlias string) searchConf
 	}
 	fullCfg := s.runtime.Current().Config
 	cfg.tavilyKey = fullCfg.TavilyAPIKey
+	cfg.metasoKey = fullCfg.MetasoAPIKey
 	cfg.firecrawlKey = fullCfg.FirecrawlAPIKey
 
 	// Prefer model-level resolved config; then provider-level fallback.
 	if modelAlias != "" {
 		if key := fullCfg.WebSearchTavilyKeyForModel(modelAlias); key != "" {
 			cfg.tavilyKey = key
+		}
+		if key := fullCfg.WebSearchMetasoKeyForModel(modelAlias); key != "" {
+			cfg.metasoKey = key
 		}
 		if key := fullCfg.WebSearchFirecrawlKeyForModel(modelAlias); key != "" {
 			cfg.firecrawlKey = key
@@ -2522,6 +2528,9 @@ func (s *Server) resolvedSearchConfig(providerKey, modelAlias string) searchConf
 	if providerKey != "" {
 		if key := fullCfg.WebSearchTavilyKeyForProvider(providerKey); key != "" {
 			cfg.tavilyKey = key
+		}
+		if key := fullCfg.WebSearchMetasoKeyForProvider(providerKey); key != "" {
+			cfg.metasoKey = key
 		}
 		if key := fullCfg.WebSearchFirecrawlKeyForProvider(providerKey); key != "" {
 			cfg.firecrawlKey = key

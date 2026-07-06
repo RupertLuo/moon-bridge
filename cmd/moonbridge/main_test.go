@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -162,14 +163,14 @@ func TestRunCreatesStarterConfigWhenDefaultConfigIsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat config dir: %v", err)
 	}
-	if got := dirInfo.Mode().Perm(); got != 0o700 {
+	if got := dirInfo.Mode().Perm(); runtime.GOOS != "windows" && got != 0o700 {
 		t.Fatalf("created config dir mode = %v, want 0700", got)
 	}
 	info, err := os.Stat(configPath)
 	if err != nil {
 		t.Fatalf("stat created config: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Fatalf("created config mode = %v, want 0600", got)
 	}
 	cfg, err := config.LoadFromFileWithOptions(configPath, config.LoadOptions{

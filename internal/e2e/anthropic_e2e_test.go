@@ -221,7 +221,6 @@ func TestAnthropicE2E_MultiTurnRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ToCoreResponse: %v", err)
 	}
-
 	outAny, err := client.FromCoreResponse(ctx, coreResp)
 	if err != nil {
 		t.Fatalf("FromCoreResponse: %v", err)
@@ -238,7 +237,7 @@ func TestAnthropicE2E_MultiTurnRoundTrip(t *testing.T) {
 // TestAnthropicE2E_ToolUseRoundTrip
 // ============================================================================
 
-func TestAnthropicE2E_ToolUseRoundTrip(t *testing.T) {
+func TestAnthropicE2E_MCPFunctionToolUsesOfficialToolsParameterAndRoundTripsNamespace(t *testing.T) {
 	if apiKey := os.Getenv("TEST_ANTHROPIC_API_KEY"); apiKey != "" {
 		t.Run("real", func(t *testing.T) { testAnthropicRealToolCall(t, apiKey) })
 		return
@@ -259,6 +258,17 @@ func TestAnthropicE2E_ToolUseRoundTrip(t *testing.T) {
 	}
 
 	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request anthropic.MessageRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode upstream request: %v", err)
+		}
+		if len(request.Tools) != 1 {
+			t.Fatalf("DeepSeek Anthropic tools = %d, want 1", len(request.Tools))
+		}
+		tool := request.Tools[0]
+		if tool.Name != "mcp__catalyst_search_search" || tool.Description == "" || tool.InputSchema["type"] != "object" {
+			t.Fatalf("DeepSeek Anthropic tool payload = %+v", tool)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{
@@ -266,7 +276,7 @@ func TestAnthropicE2E_ToolUseRoundTrip(t *testing.T) {
 			"type": "message",
 			"role": "assistant",
 			"content": [
-				{"type": "tool_use", "id": "tu_001", "name": "get_weather", "input": {"city": "Paris"}}
+				{"type": "tool_use", "id": "tu_001", "name": "mcp__catalyst_search_search", "input": {"query": "World Cup"}}
 			],
 			"model": "claude-3.5-sonnet-20241022",
 			"stop_reason": "tool_use",
@@ -277,18 +287,19 @@ func TestAnthropicE2E_ToolUseRoundTrip(t *testing.T) {
 
 	openAIReq := openai.ResponsesRequest{
 		Model: "claude-3.5-sonnet",
-		Input: json.RawMessage(`"Use the get_weather tool for Paris"`),
+		Input: json.RawMessage(`"Search public sources for the World Cup"`),
 		Tools: []openai.Tool{
 			{
 				Type:        "function",
-				Name:        "get_weather",
-				Description: "Get the current weather for a city",
+				Name:        "search",
+				Namespace:   "mcp__catalyst_search",
+				Description: "Search public sources through Catalyst",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"city": map[string]any{"type": "string"},
+						"query": map[string]any{"type": "string"},
 					},
-					"required": []any{"city"},
+					"required": []any{"query"},
 				},
 			},
 		},
@@ -305,8 +316,8 @@ func TestAnthropicE2E_ToolUseRoundTrip(t *testing.T) {
 	if len(coreReq.Tools) == 0 {
 		t.Fatal("expected tools in CoreRequest, got none")
 	}
-	if coreReq.Tools[0].Name != "get_weather" {
-		t.Errorf("tool name = %q, want %q", coreReq.Tools[0].Name, "get_weather")
+	if coreReq.Tools[0].Name != "mcp__catalyst_search_search" {
+		t.Errorf("tool name = %q, want namespaced MCP search", coreReq.Tools[0].Name)
 	}
 	if coreReq.ToolChoice == nil {
 		t.Fatal("expected ToolChoice in CoreRequest")
@@ -322,8 +333,8 @@ func TestAnthropicE2E_ToolUseRoundTrip(t *testing.T) {
 	if len(upstreamReq.Tools) == 0 {
 		t.Fatal("expected tools in anthropic request, got none")
 	}
-	if upstreamReq.Tools[0].Name != "get_weather" {
-		t.Errorf("anthropic tool name = %q, want %q", upstreamReq.Tools[0].Name, "get_weather")
+	if upstreamReq.Tools[0].Name != "mcp__catalyst_search_search" {
+		t.Errorf("anthropic tool name = %q, want namespaced MCP search", upstreamReq.Tools[0].Name)
 	}
 	if upstreamReq.ToolChoice.Type != "any" {
 		t.Errorf("tool_choice type = %q, want %q", upstreamReq.ToolChoice.Type, "any")
@@ -343,6 +354,9 @@ func TestAnthropicE2E_ToolUseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ToCoreResponse: %v", err)
 	}
+	// The server dispatcher propagates request extensions so the client adapter
+	// can restore the original Codex function namespace after provider tool use.
+	coreResp.Extensions = coreReq.Extensions
 
 	outAny, err := client.FromCoreResponse(ctx, coreResp)
 	if err != nil {
@@ -355,8 +369,8 @@ func TestAnthropicE2E_ToolUseRoundTrip(t *testing.T) {
 	for _, item := range oaiResp.Output {
 		if item.Type == "function_call" {
 			foundFunctionCall = true
-			if item.Name != "get_weather" {
-				t.Errorf("function_call name = %q, want %q", item.Name, "get_weather")
+			if item.Name != "search" || item.Namespace != "mcp__catalyst_search" {
+				t.Errorf("function_call identity = %q/%q, want mcp__catalyst_search/search", item.Namespace, item.Name)
 			}
 			if item.CallID != "tu_001" {
 				t.Errorf("function_call call_id = %q, want %q", item.CallID, "tu_001")

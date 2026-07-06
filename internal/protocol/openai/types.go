@@ -44,6 +44,7 @@ type ResponsesRequest struct {
 type Tool struct {
 	Type               string         `json:"type"`
 	Name               string         `json:"name,omitempty"`
+	Namespace          string         `json:"namespace,omitempty"`
 	Description        string         `json:"description,omitempty"`
 	Parameters         map[string]any `json:"parameters,omitempty"`
 	Strict             *bool          `json:"strict,omitempty"`
@@ -88,7 +89,7 @@ type OutputItem struct {
 	Arguments string                 `json:"arguments,omitempty"`
 	Input     string                 `json:"input,omitempty"`
 	Action    *ToolAction            `json:"action,omitempty"`
-	Summary   []ReasoningItemSummary `json:"summary,omitempty"`
+	Summary   []ReasoningItemSummary `json:"summary"`
 }
 
 // ToolAction describes an action associated with a tool.

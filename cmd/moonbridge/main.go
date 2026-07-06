@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"log/slog"
@@ -244,6 +245,9 @@ func publishConfigFile(tempPath string, finalPath string) (bool, error) {
 }
 
 func syncParentDir(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	dirPath := filepath.Dir(path)
 	dir, err := os.Open(dirPath)
 	if err != nil {

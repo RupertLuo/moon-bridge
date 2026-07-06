@@ -1,5 +1,18 @@
 package websearch
 
+import "context"
+
+// SearchClient executes a web search against a configured provider.
+type SearchClient interface {
+	Search(context.Context, SearchRequest) (*SearchResult, error)
+}
+
+// FetchClient fetches readable page content from a configured provider.
+type FetchClient interface {
+	Fetch(context.Context, FetchRequest) (*FetchResult, error)
+	Enabled() bool
+}
+
 // SearchRequest is the request to the Tavily search API.
 type SearchRequest struct {
 	Query          string   `json:"query"`

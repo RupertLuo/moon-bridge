@@ -12,6 +12,7 @@ type RequestContext struct {
 type WebSearchInfo struct {
 	Mode         string // "enabled", "disabled", "injected", ""
 	MaxUses      int
+	MetasoKey    string
 	FirecrawlKey string
 }
 

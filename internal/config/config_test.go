@@ -144,6 +144,40 @@ web_search:
 	}
 }
 
+func TestLoadFromYAMLAllowsInjectedWebSearchWithMetasoOnly(t *testing.T) {
+	cfg, err := config.LoadFromYAML([]byte(`
+mode: Transform
+models:
+  claude-test: {}
+providers:
+  main:
+    base_url: https://provider.example.test
+    api_key: upstream-key
+    offers:
+      - model: claude-test
+routes:
+  moonbridge:
+    model: claude-test
+    provider: main
+web_search:
+  support: injected
+  metaso_api_key: mk-test
+  search_max_rounds: 3
+`))
+	if err != nil {
+		t.Fatalf("LoadFromYAML() error = %v", err)
+	}
+	if cfg.MetasoAPIKey != "mk-test" {
+		t.Fatalf("MetasoAPIKey = %q", cfg.MetasoAPIKey)
+	}
+	if got := cfg.WebSearchMetasoKeyForModel("moonbridge"); got != "mk-test" {
+		t.Fatalf("WebSearchMetasoKeyForModel() = %q", got)
+	}
+	if cfg.WebSearchTavilyKeyForModel("moonbridge") != "" {
+		t.Fatalf("Tavily key should be empty, got %q", cfg.WebSearchTavilyKeyForModel("moonbridge"))
+	}
+}
+
 func TestLoadFromYAMLParsesMultiProviderProtocol(t *testing.T) {
 	cfg, err := config.LoadFromYAMLWithOptions([]byte(`
 mode: Transform

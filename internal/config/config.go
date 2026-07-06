@@ -46,6 +46,7 @@ type WebSearchConfig struct {
 	Support         WebSearchSupport
 	MaxUses         int
 	TavilyAPIKey    string
+	MetasoAPIKey    string
 	FirecrawlAPIKey string
 	SearchMaxRounds int
 	Extra           map[string]any
@@ -63,6 +64,7 @@ type Config struct {
 	WebSearchSupport WebSearchSupport
 	WebSearchMaxUses int
 	TavilyAPIKey     string
+	MetasoAPIKey     string
 	FirecrawlAPIKey  string
 	SearchMaxRounds  int
 	WebSearchExtra   map[string]any
@@ -136,6 +138,7 @@ type ProviderDef struct {
 	WebSearchSupport WebSearchSupport
 	WebSearchMaxUses int
 	TavilyAPIKey     string
+	MetasoAPIKey     string
 	FirecrawlAPIKey  string
 	SearchMaxRounds  int
 	WebSearchExtra   map[string]any
@@ -331,11 +334,11 @@ func (cfg Config) validateTransform() error {
 
 func (cfg Config) validateSearchConfig() error {
 	if cfg.WebSearchSupport == WebSearchSupportInjected {
-		if cfg.TavilyAPIKey == "" {
-			return errors.New("provider.tavily_api_key is required when web_search.support is 'injected'")
+		if cfg.TavilyAPIKey == "" && cfg.MetasoAPIKey == "" {
+			return errors.New("web_search.tavily_api_key or web_search.metaso_api_key is required when web_search.support is 'injected'")
 		}
 		if cfg.SearchMaxRounds <= 0 {
-			return errors.New("provider.search_max_rounds must be > 0 when web_search.support is 'injected'")
+			return errors.New("web_search.search_max_rounds must be > 0 when web_search.support is 'injected'")
 		}
 	}
 	for key, def := range cfg.ProviderDefs {
@@ -344,8 +347,12 @@ func (cfg Config) validateSearchConfig() error {
 			if tavilyKey == "" {
 				tavilyKey = cfg.TavilyAPIKey
 			}
-			if tavilyKey == "" {
-				return fmt.Errorf("providers.%s.web_search.tavily_api_key is required when web_search.support is 'injected'", key)
+			metasoKey := def.MetasoAPIKey
+			if metasoKey == "" {
+				metasoKey = cfg.MetasoAPIKey
+			}
+			if tavilyKey == "" && metasoKey == "" {
+				return fmt.Errorf("providers.%s.web_search.tavily_api_key or metaso_api_key is required when web_search.support is 'injected'", key)
 			}
 			maxRounds := def.SearchMaxRounds
 			if maxRounds <= 0 {
@@ -569,6 +576,14 @@ func (cfg Config) WebSearchTavilyKeyForProvider(providerKey string) string {
 	return cfg.TavilyAPIKey
 }
 
+// WebSearchMetasoKeyForProvider returns the Metaso API key for a given provider key.
+func (cfg Config) WebSearchMetasoKeyForProvider(providerKey string) string {
+	if def, ok := cfg.ProviderDefs[providerKey]; ok && def.MetasoAPIKey != "" {
+		return def.MetasoAPIKey
+	}
+	return cfg.MetasoAPIKey
+}
+
 // WebSearchFirecrawlKeyForProvider returns the Firecrawl API key for a given provider key.
 func (cfg Config) WebSearchFirecrawlKeyForProvider(providerKey string) string {
 	if def, ok := cfg.ProviderDefs[providerKey]; ok && def.FirecrawlAPIKey != "" {
@@ -637,6 +652,15 @@ func (cfg Config) WebSearchTavilyKeyForModel(modelAlias string) string {
 	}
 	providerKey := cfg.providerKeyForModel(modelAlias)
 	return cfg.WebSearchTavilyKeyForProvider(providerKey)
+}
+
+// WebSearchMetasoKeyForModel returns the Metaso API key for a given model alias.
+func (cfg Config) WebSearchMetasoKeyForModel(modelAlias string) string {
+	if ws := cfg.webSearchConfigForModel(modelAlias); ws.MetasoAPIKey != "" {
+		return ws.MetasoAPIKey
+	}
+	providerKey := cfg.providerKeyForModel(modelAlias)
+	return cfg.WebSearchMetasoKeyForProvider(providerKey)
 }
 
 // WebSearchFirecrawlKeyForModel returns the Firecrawl API key for a given model alias.

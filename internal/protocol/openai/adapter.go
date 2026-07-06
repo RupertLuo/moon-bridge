@@ -34,6 +34,8 @@ type OpenAIAdapter struct {
 	hooks format.CorePluginHooks
 
 	disablePatchProxy func(string) bool
+	streamMu          sync.Mutex
+	streamEvents      []StreamEvent
 	nsStrategy        codextool.NamespaceStrategy
 }
 
@@ -1828,12 +1830,14 @@ func convertToolWithNamespace(tool Tool, namespace string, disablePatchProxy fun
 
 	switch tool.Type {
 	case "function":
+		functionNamespace := namespacedToolName(namespace, tool.Namespace)
+		name = namespacedToolName(functionNamespace, tool.Name)
 		ct := format.CoreTool{
 			Name:        name,
 			Description: tool.Description,
 			InputSchema: tool.Parameters,
 		}
-		codextool.AnnotateCoreTool(&ct, codextool.ToolFunction, tool.Name, namespace)
+		codextool.AnnotateCoreTool(&ct, codextool.ToolFunction, tool.Name, functionNamespace)
 		return []format.CoreTool{ct}
 
 	case "web_search", "web_search_preview":

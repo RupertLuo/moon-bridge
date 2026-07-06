@@ -28,6 +28,9 @@ func NewTavilyClient(apiKey string) *TavilyClient {
 
 // Search executes a search query against the Tavily API with retry on transient errors.
 func (c *TavilyClient) Search(ctx context.Context, req SearchRequest) (*SearchResult, error) {
+	if c == nil || c.apiKey == "" {
+		return nil, fmt.Errorf("tavily not configured")
+	}
 	if req.MaxResults <= 0 {
 		req.MaxResults = 5
 	}
@@ -88,4 +91,9 @@ func (c *TavilyClient) Search(ctx context.Context, req SearchRequest) (*SearchRe
 		}
 	}
 	return nil, fmt.Errorf("tavily search failed after 3 attempts: %w", lastErr)
+}
+
+// Enabled returns whether the Tavily client is configured with a valid API key.
+func (c *TavilyClient) Enabled() bool {
+	return c != nil && c.apiKey != ""
 }

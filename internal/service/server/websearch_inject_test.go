@@ -122,7 +122,7 @@ func TestChatSearchBufferedStream_NoToolCallPassThrough(t *testing.T) {
 		Model:    "gpt-test",
 		Messages: []chat.ChatMessage{{Role: "user", Content: "hi"}},
 	}
-	ch, err := srv.chatSearchBufferedStream(context.Background(), client, req, "", "", 2)
+	ch, err := srv.chatSearchBufferedStream(context.Background(), client, req, "", "", "", 2)
 	if err != nil {
 		t.Fatalf("chatSearchBufferedStream error: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestChatSearchBufferedStream_ExceedsMaxRounds(t *testing.T) {
 		Model:    "gpt-test",
 		Messages: []chat.ChatMessage{{Role: "user", Content: "search hi"}},
 	}
-	_, err := srv.chatSearchBufferedStream(context.Background(), client, req, "", "", 1)
+	_, err := srv.chatSearchBufferedStream(context.Background(), client, req, "", "", "", 1)
 	if err == nil {
 		t.Fatal("expected max-rounds error, got nil")
 	}

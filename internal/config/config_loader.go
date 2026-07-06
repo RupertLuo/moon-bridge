@@ -232,6 +232,7 @@ type WebSearchFileConfig struct {
 	Support         string         `yaml:"support" json:"support,omitempty"`
 	MaxUses         int            `yaml:"max_uses" json:"max_uses,omitempty"`
 	TavilyAPIKey    string         `yaml:"tavily_api_key" json:"tavily_api_key,omitempty"`
+	MetasoAPIKey    string         `yaml:"metaso_api_key" json:"metaso_api_key,omitempty"`
 	FirecrawlAPIKey string         `yaml:"firecrawl_api_key" json:"firecrawl_api_key,omitempty"`
 	SearchMaxRounds int            `yaml:"search_max_rounds" json:"search_max_rounds,omitempty"`
 	Extra           map[string]any `yaml:",inline" json:"-"`
@@ -246,6 +247,7 @@ func (cfg *WebSearchFileConfig) UnmarshalYAML(value *yaml.Node) error {
 	cfg.Support = out.Support
 	cfg.MaxUses = out.MaxUses
 	cfg.TavilyAPIKey = out.TavilyAPIKey
+	cfg.MetasoAPIKey = out.MetasoAPIKey
 	cfg.FirecrawlAPIKey = out.FirecrawlAPIKey
 	cfg.SearchMaxRounds = out.SearchMaxRounds
 	cfg.Extra = removeKnownKeys(out.Extra, webSearchKnownKeys)
@@ -257,6 +259,7 @@ func (cfg WebSearchFileConfig) MarshalYAML() (any, error) {
 		"support":           emptyStringAsNil(cfg.Support),
 		"max_uses":          emptyIntAsNil(cfg.MaxUses),
 		"tavily_api_key":    emptyStringAsNil(cfg.TavilyAPIKey),
+		"metaso_api_key":    emptyStringAsNil(cfg.MetasoAPIKey),
 		"firecrawl_api_key": emptyStringAsNil(cfg.FirecrawlAPIKey),
 		"search_max_rounds": emptyIntAsNil(cfg.SearchMaxRounds),
 	}), nil
@@ -275,6 +278,7 @@ func (cfg *WebSearchFileConfig) UnmarshalJSON(data []byte) error {
 	cfg.Support = out.Support
 	cfg.MaxUses = out.MaxUses
 	cfg.TavilyAPIKey = out.TavilyAPIKey
+	cfg.MetasoAPIKey = out.MetasoAPIKey
 	cfg.FirecrawlAPIKey = out.FirecrawlAPIKey
 	cfg.SearchMaxRounds = out.SearchMaxRounds
 	cfg.Extra = removeKnownKeys(raw, webSearchKnownKeys)
@@ -286,6 +290,7 @@ func (cfg WebSearchFileConfig) MarshalJSON() ([]byte, error) {
 		"support":           emptyStringAsNil(cfg.Support),
 		"max_uses":          emptyIntAsNil(cfg.MaxUses),
 		"tavily_api_key":    emptyStringAsNil(cfg.TavilyAPIKey),
+		"metaso_api_key":    emptyStringAsNil(cfg.MetasoAPIKey),
 		"firecrawl_api_key": emptyStringAsNil(cfg.FirecrawlAPIKey),
 		"search_max_rounds": emptyIntAsNil(cfg.SearchMaxRounds),
 	}))
@@ -457,6 +462,7 @@ func FromFileConfigWithOptions(fileConfig FileConfig, opts LoadOptions) (Config,
 		WebSearchSupport: webSearchSupport,
 		WebSearchMaxUses: intOrDefault(fileConfig.WebSearch.MaxUses, 8),
 		TavilyAPIKey:     strings.TrimSpace(fileConfig.WebSearch.TavilyAPIKey),
+		MetasoAPIKey:     valueOrDefault(strings.TrimSpace(fileConfig.WebSearch.MetasoAPIKey), metasoAPIKeyFromEnv()),
 		FirecrawlAPIKey:  strings.TrimSpace(fileConfig.WebSearch.FirecrawlAPIKey),
 		SearchMaxRounds:  intOrDefault(fileConfig.WebSearch.SearchMaxRounds, 5),
 		WebSearchExtra:   cloneAnyMap(fileConfig.WebSearch.Extra),
@@ -498,6 +504,7 @@ func fromModelDefFileConfig(fileConfig map[string]ModelDefFileConfig, specs exte
 				Support:         explicitWebSearchSupport(m.WebSearch.Support, wsSupport),
 				MaxUses:         m.WebSearch.MaxUses,
 				TavilyAPIKey:    strings.TrimSpace(m.WebSearch.TavilyAPIKey),
+				MetasoAPIKey:    strings.TrimSpace(m.WebSearch.MetasoAPIKey),
 				FirecrawlAPIKey: strings.TrimSpace(m.WebSearch.FirecrawlAPIKey),
 				SearchMaxRounds: m.WebSearch.SearchMaxRounds,
 				Extra:           cloneAnyMap(m.WebSearch.Extra),
@@ -637,6 +644,7 @@ func fromProviderDefFileConfig(fileConfig map[string]ProviderDefFileConfig, spec
 			WebSearchSupport: wsSupport,
 			WebSearchMaxUses: def.WebSearch.MaxUses,
 			TavilyAPIKey:     strings.TrimSpace(def.WebSearch.TavilyAPIKey),
+			MetasoAPIKey:     strings.TrimSpace(def.WebSearch.MetasoAPIKey),
 			FirecrawlAPIKey:  strings.TrimSpace(def.WebSearch.FirecrawlAPIKey),
 			SearchMaxRounds:  def.WebSearch.SearchMaxRounds,
 			WebSearchExtra:   cloneAnyMap(def.WebSearch.Extra),
@@ -701,6 +709,7 @@ func mergeModelDefOverrides(base ModelDef, override ModelDefFileConfig) ModelDef
 			Support:         explicitWebSearchSupport(override.WebSearch.Support, wsSupport),
 			MaxUses:         override.WebSearch.MaxUses,
 			TavilyAPIKey:    strings.TrimSpace(override.WebSearch.TavilyAPIKey),
+			MetasoAPIKey:    strings.TrimSpace(override.WebSearch.MetasoAPIKey),
 			FirecrawlAPIKey: strings.TrimSpace(override.WebSearch.FirecrawlAPIKey),
 			SearchMaxRounds: override.WebSearch.SearchMaxRounds,
 			Extra:           cloneAnyMap(override.WebSearch.Extra),
@@ -858,6 +867,7 @@ func buildRoutes(rawRoutes map[string]RouteFileConfig, providerDefs map[string]P
 				Support:         explicitWebSearchSupport(routeCfg.WebSearch.Support, wsSupport),
 				MaxUses:         routeCfg.WebSearch.MaxUses,
 				TavilyAPIKey:    strings.TrimSpace(routeCfg.WebSearch.TavilyAPIKey),
+				MetasoAPIKey:    strings.TrimSpace(routeCfg.WebSearch.MetasoAPIKey),
 				FirecrawlAPIKey: strings.TrimSpace(routeCfg.WebSearch.FirecrawlAPIKey),
 				SearchMaxRounds: routeCfg.WebSearch.SearchMaxRounds,
 				Extra:           cloneAnyMap(routeCfg.WebSearch.Extra),
@@ -919,6 +929,15 @@ func parseWebSearchSupport(value string) (WebSearchSupport, error) {
 	}
 }
 
+func metasoAPIKeyFromEnv() string {
+	for _, name := range []string{"METASO_API_KEY", "CATALYST_METASO_API_KEY", "IB_TOOL_METASO_API_KEY"} {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func explicitWebSearchSupport(raw string, parsed WebSearchSupport) WebSearchSupport {
 	if strings.TrimSpace(raw) == "" {
 		return ""
@@ -930,6 +949,7 @@ func hasWebSearchFileConfig(cfg WebSearchFileConfig) bool {
 	return strings.TrimSpace(cfg.Support) != "" ||
 		cfg.MaxUses != 0 ||
 		strings.TrimSpace(cfg.TavilyAPIKey) != "" ||
+		strings.TrimSpace(cfg.MetasoAPIKey) != "" ||
 		strings.TrimSpace(cfg.FirecrawlAPIKey) != "" ||
 		cfg.SearchMaxRounds != 0 ||
 		len(cfg.Extra) > 0

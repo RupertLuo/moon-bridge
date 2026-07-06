@@ -23,14 +23,14 @@ func IsEnabled(cfg interface{ WebSearchInjected() bool }) bool {
 // InjectTools returns function-type tools to inject into the Anthropic request
 // when the bridge encounters a web_search / web_search_preview tool from Codex.
 // Delegates to websearch.InjectedTools for the actual tool definitions.
-func InjectTools(firecrawlKey string) []anthropic.Tool {
-	return websearch.InjectedTools(firecrawlKey)
+func InjectTools(firecrawlKey, metasoKey string) []anthropic.Tool {
+	return websearch.InjectedTools(firecrawlKey, metasoKey)
 }
 
 // CoreTools returns Core-format tool definitions for injected web search.
 // This is the CorePluginHooks-compatible variant of InjectTools.
-func CoreTools(firecrawlKey string) []format.CoreTool {
-	tools := websearch.InjectedTools(firecrawlKey)
+func CoreTools(firecrawlKey, metasoKey string) []format.CoreTool {
+	tools := websearch.InjectedTools(firecrawlKey, metasoKey)
 	coreTools := make([]format.CoreTool, len(tools))
 	for i, t := range tools {
 		coreTools[i] = format.CoreTool{
@@ -45,10 +45,11 @@ func CoreTools(firecrawlKey string) []format.CoreTool {
 // WrapProvider wraps an Anthropic client with the injected search orchestrator.
 // The returned *websearch.Orchestrator implements the same CreateMessage /
 // StreamMessage interface as *anthropic.Client.
-func WrapProvider(client *anthropic.Client, tavilyKey, firecrawlKey string, maxRounds int) *websearch.Orchestrator {
+func WrapProvider(client *anthropic.Client, tavilyKey, metasoKey, firecrawlKey string, maxRounds int) *websearch.Orchestrator {
 	return websearch.NewInjectedOrchestrator(websearch.OrchestratorConfig{
 		Anthropic:       client,
 		TavilyKey:       tavilyKey,
+		MetasoKey:       metasoKey,
 		FirecrawlKey:    firecrawlKey,
 		SearchMaxRounds: maxRounds,
 	})

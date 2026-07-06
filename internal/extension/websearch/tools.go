@@ -14,6 +14,8 @@ type ToolOptions struct {
 	DefaultMaxUses int
 	// FirecrawlAPIKey enables the firecrawl_fetch injected tool when non-empty.
 	FirecrawlAPIKey string
+	// MetasoAPIKey enables Metaso-backed injected web_search and web_fetch.
+	MetasoAPIKey string
 }
 
 // Tools generates Anthropic tool definitions for web search based on the mode.
@@ -21,7 +23,7 @@ type ToolOptions struct {
 func Tools(opts ToolOptions) []anthropic.Tool {
 	switch opts.Mode {
 	case "injected":
-		return InjectedTools(opts.FirecrawlAPIKey)
+		return InjectedTools(opts.FirecrawlAPIKey, opts.MetasoAPIKey)
 	case "enabled":
 		maxUses := opts.MaxUses
 		if maxUses <= 0 {
@@ -41,8 +43,24 @@ func Tools(opts ToolOptions) []anthropic.Tool {
 }
 
 // InjectedTools returns function-type tools for injected web search.
-// If firecrawlKey is empty, only tavily_search is returned.
-func InjectedTools(firecrawlKey string) []anthropic.Tool {
+// If metasoKey is present, neutral web_search/web_fetch tools are returned and
+// backed by Metaso. Otherwise Tavily/Firecrawl-compatible tools are returned.
+func InjectedTools(firecrawlKey string, metasoKey ...string) []anthropic.Tool {
+	if firstOptional(metasoKey) != "" {
+		return []anthropic.Tool{
+			{
+				Name:        "web_search",
+				Description: "Search the web using the configured native search provider. Returns search results with titles, URLs, and content snippets.",
+				InputSchema: simpleSearchSchema(),
+			},
+			{
+				Name:        "web_fetch",
+				Description: "Fetch and extract the readable content of a specific web page using the configured native reader provider.",
+				InputSchema: simpleFetchSchema(),
+			},
+		}
+	}
+
 	tools := []anthropic.Tool{
 		{
 			Name:        "tavily_search",
@@ -58,6 +76,44 @@ func InjectedTools(firecrawlKey string) []anthropic.Tool {
 		})
 	}
 	return tools
+}
+
+func firstOptional(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func simpleSearchSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{
+				"type":        "string",
+				"description": "Search query (required).",
+			},
+			"max_results": map[string]any{
+				"type":        "integer",
+				"description": "Maximum number of results to return.",
+				"default":     5,
+			},
+		},
+		"required": []string{"query"},
+	}
+}
+
+func simpleFetchSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"url": map[string]any{
+				"type":        "string",
+				"description": "URL of the web page to fetch.",
+			},
+		},
+		"required": []string{"url"},
+	}
 }
 
 func tavilySearchSchema() map[string]any {
