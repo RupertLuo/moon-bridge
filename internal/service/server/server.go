@@ -21,6 +21,7 @@ import (
 	"moonbridge/internal/service/runtime"
 	"moonbridge/internal/service/stats"
 	"moonbridge/internal/service/store"
+	"moonbridge/internal/service/webui"
 
 	"moonbridge/internal/service/server/session"
 	"moonbridge/internal/service/server/trace"
@@ -73,6 +74,13 @@ type Server struct {
 	sessionManager  session.Manager
 	usageTracker    usage.Tracker
 	traceWriter     trace.Writer
+
+	// clientCaches holds lazily-created HTTP clients for runtime-reloaded providers.
+	// Keyed by provider key, invalidated when Runtime reloads.
+	clientCache   map[string]*chat.Client
+	googleCache   map[string]*google.Client
+	clientCacheMu sync.RWMutex
+	googleCacheMu sync.RWMutex
 }
 
 func (s *Server) runtimeSnapshot() *runtime.ConfigSnapshot {
@@ -97,22 +105,42 @@ func (s *Server) activeProviderDefs() map[string]config.ProviderDef {
 }
 
 func (s *Server) activeChatClient(providerKey string) any {
+	// Check runtime-driven cache first.
+	s.clientCacheMu.RLock()
+	if cached, ok := s.clientCache[providerKey]; ok {
+		s.clientCacheMu.RUnlock()
+		return cached
+	}
+	s.clientCacheMu.RUnlock()
+
 	if snap := s.runtimeSnapshot(); snap != nil {
 		if def, ok := snap.Config.ProviderDefs[providerKey]; ok && def.Protocol == config.ProtocolOpenAIChat {
-			return chat.NewClient(chat.ClientConfig{
+			client := chat.NewClient(chat.ClientConfig{
 				BaseURL:   def.BaseURL,
 				APIKey:    def.APIKey,
 				UserAgent: def.UserAgent,
 			})
+			s.clientCacheMu.Lock()
+			s.clientCache[providerKey] = client
+			s.clientCacheMu.Unlock()
+			return client
 		}
 	}
 	return s.chatClients[providerKey]
 }
 
 func (s *Server) activeGoogleClient(providerKey string) any {
+	// Check runtime-driven cache first.
+	s.googleCacheMu.RLock()
+	if cached, ok := s.googleCache[providerKey]; ok {
+		s.googleCacheMu.RUnlock()
+		return cached
+	}
+	s.googleCacheMu.RUnlock()
+
 	if snap := s.runtimeSnapshot(); snap != nil {
 		if def, ok := snap.Config.ProviderDefs[providerKey]; ok && def.Protocol == config.ProtocolGoogleGenAI {
-			return google.NewClient(google.ClientConfig{
+			client := google.NewClient(google.ClientConfig{
 				BaseURL:   def.BaseURL,
 				APIKey:    def.APIKey,
 				Project:   def.Project,
@@ -120,6 +148,10 @@ func (s *Server) activeGoogleClient(providerKey string) any {
 				Version:   def.APIVersion,
 				UserAgent: def.UserAgent,
 			})
+			s.googleCacheMu.Lock()
+			s.googleCache[providerKey] = client
+			s.googleCacheMu.Unlock()
+			return client
 		}
 	}
 	return s.googleClients[providerKey]
@@ -148,11 +180,14 @@ func New(cfg Config) *Server {
 		sessionManager:  cfg.SessionManager,
 		usageTracker:    cfg.UsageTracker,
 		traceWriter:     cfg.TraceWriter,
+		clientCache:     make(map[string]*chat.Client),
+		googleCache:     make(map[string]*google.Client),
 	}
 	s.mux.HandleFunc("/v1/responses", s.handleResponses)
 	s.mux.HandleFunc("/responses", s.handleResponses)
 	s.mux.HandleFunc("/v1/models", s.handleModels)
 	s.mux.HandleFunc("/models", s.handleModels)
+	s.mux.Handle("/console/", webui.Embedded())
 	s.registerPluginRoutes()
 	if cfg.Runtime != nil && cfg.Store != nil {
 		apiRouter := api.NewRouter(s.store, s.runtime, s.stats, s.pluginRegistry, s)
@@ -162,7 +197,7 @@ func New(cfg Config) *Server {
 }
 
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	if token := s.currentConfig().AuthToken; token != "" {
+	if token := s.currentConfig().AuthToken; token != "" && !isConsoleAssetPath(request.URL.Path) {
 		if !checkAuth(request, token) {
 			writer.Header().Set("Content-Type", "application/json")
 			writer.WriteHeader(http.StatusUnauthorized)
@@ -175,6 +210,10 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		}
 	}
 	s.mux.ServeHTTP(writer, request)
+}
+
+func isConsoleAssetPath(path string) bool {
+	return path == "/console" || strings.HasPrefix(path, "/console/")
 }
 
 func (s *Server) handleModels(writer http.ResponseWriter, request *http.Request) {

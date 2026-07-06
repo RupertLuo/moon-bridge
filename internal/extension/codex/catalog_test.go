@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -57,6 +58,7 @@ func TestBuildModelInfosFromConfigIncludesProviderModelsBeforeRouteFallback(t *t
 
 func TestBuildModelInfoPreservesReasoningLevels(t *testing.T) {
 	info := codex.BuildModelInfoFromProviderModel("deepseek-v4-pro(deepseek)", "deepseek", config.ModelMeta{
+		SupportsReasoning:     true,
 		ContextWindow:         200000,
 		DefaultReasoningLevel: "high",
 		SupportedReasoningLevels: []config.ReasoningLevelPreset{
@@ -72,6 +74,29 @@ func TestBuildModelInfoPreservesReasoningLevels(t *testing.T) {
 	}
 	if info.SupportedReasoningLevels[0].Effort != "high" || info.SupportedReasoningLevels[1].Effort != "xhigh" {
 		t.Fatalf("SupportedReasoningLevels = %+v", info.SupportedReasoningLevels)
+	}
+}
+
+func TestBuildModelInfoOmitsReasoningMetadataWhenUnsupported(t *testing.T) {
+	info := codex.BuildModelInfoFromRoute("plain", "default", config.RouteEntry{
+		SupportsReasoning:          false,
+		DefaultReasoningLevel:      "medium",
+		SupportedReasoningLevels:   []config.ReasoningLevelPreset{{Effort: "medium", Description: "Balanced"}},
+		SupportsReasoningSummaries: true,
+		DefaultReasoningSummary:    "auto",
+	})
+
+	if info.DefaultReasoningLevel != "" {
+		t.Fatalf("DefaultReasoningLevel = %q, want empty", info.DefaultReasoningLevel)
+	}
+	if len(info.SupportedReasoningLevels) != 0 {
+		t.Fatalf("SupportedReasoningLevels = %+v, want empty", info.SupportedReasoningLevels)
+	}
+	if info.SupportsReasoningSummaries {
+		t.Fatal("SupportsReasoningSummaries = true, want false")
+	}
+	if info.DefaultReasoningSummary != "none" {
+		t.Fatalf("DefaultReasoningSummary = %q, want none", info.DefaultReasoningSummary)
 	}
 }
 
@@ -247,6 +272,7 @@ func TestBuildModelInfosFromConfig_ReasoningLevelsDeduplicatedByEffort(t *testin
 			"provider-a": {
 				Models: map[string]config.ModelMeta{
 					"model-x": {
+						SupportsReasoning: true,
 						SupportedReasoningLevels: []config.ReasoningLevelPreset{
 							{Effort: "high", Description: "A High"},
 							{Effort: "low", Description: "A Low"},
@@ -257,6 +283,7 @@ func TestBuildModelInfosFromConfig_ReasoningLevelsDeduplicatedByEffort(t *testin
 			"provider-b": {
 				Models: map[string]config.ModelMeta{
 					"model-x": {
+						SupportsReasoning: true,
 						SupportedReasoningLevels: []config.ReasoningLevelPreset{
 							{Effort: "high", Description: "B High"},
 							{Effort: "xhigh", Description: "B XHigh"},
@@ -514,7 +541,7 @@ func TestGenerateConfigTomlWritesAuthJSONWithOwnerOnlyPermissions(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0600 {
 		t.Fatalf("auth.json perm = %04o, want 0600", perm)
 	}
 }

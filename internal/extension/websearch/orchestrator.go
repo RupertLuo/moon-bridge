@@ -118,9 +118,27 @@ func (o *Orchestrator) CreateMessage(ctx context.Context, req anthropic.MessageR
 		searchUses := o.filterSearchTools(toolUses)
 		nonSearchUses := subtractToolUses(toolUses, searchUses)
 
-		// If there are non-search tool_use blocks, return the response
-		// so the caller (Bridge) can handle them as normal tool calls.
+		// If there are non-search tool_use blocks, execute any pending search
+		// tools and return the response with search tool_uses filtered out.
+		// This prevents injected search tools (tavily_search, firecrawl_fetch)
+		// from leaking to the client through the Bridge.
 		if len(nonSearchUses) > 0 {
+			// Execute search tools first as a side effect.
+			for _, tu := range searchUses {
+				_, execErr := o.executeSearch(ctx, tu)
+				if execErr != nil {
+					log.Warn("搜索执行失败（混合调用）", "tool", tu.Name, "error", execErr)
+				}
+			}
+			// Filter search tool_uses from the response content.
+			filtered := make([]anthropic.ContentBlock, 0, len(resp.Content))
+			for _, block := range resp.Content {
+				if block.Type == "tool_use" && o.isSearchTool(block.Name) {
+					continue
+				}
+				filtered = append(filtered, block)
+			}
+			resp.Content = filtered
 			return resp, nil
 		}
 
@@ -128,25 +146,7 @@ func (o *Orchestrator) CreateMessage(ctx context.Context, req anthropic.MessageR
 			return resp, nil
 		}
 
-		// Execute search/fetch calls and build tool results.
-		toolResults := make([]anthropic.ContentBlock, 0, len(searchUses))
-		for _, tu := range searchUses {
-			result, execErr := o.executeSearch(ctx, tu)
-			if execErr != nil {
-				log.Warn("搜索执行失败", "tool", tu.Name, "error", execErr)
-				toolResults = append(toolResults, anthropic.ContentBlock{
-					Type:      "tool_result",
-					ToolUseID: tu.ID,
-					Content:   json.RawMessage(fmt.Sprintf(`"Search error: %s"`, execErr.Error())),
-				})
-				continue
-			}
-			toolResults = append(toolResults, anthropic.ContentBlock{
-				Type:      "tool_result",
-				ToolUseID: tu.ID,
-				Content:   json.RawMessage(fmt.Sprintf(`"%s"`, escapeForJSON(result))),
-			})
-		}
+		toolResults := o.buildToolResults(ctx, searchUses)
 
 		// Append the assistant message (with search tool_use blocks) and
 		// user message (with tool_results) to the request for the next round.
@@ -216,7 +216,22 @@ func (o *Orchestrator) StreamMessage(ctx context.Context, req anthropic.MessageR
 		searchUses := o.filterSearchTools(toolUses)
 		nonSearchUses := subtractToolUses(toolUses, searchUses)
 
-		if len(nonSearchUses) > 0 || len(searchUses) == 0 {
+		if len(searchUses) == 0 {
+			allEvents = events
+			if lastUsage != nil {
+				allEvents = injectUsageIntoStart(allEvents, *lastUsage)
+			}
+			return &staticStream{events: allEvents}, nil
+		}
+		if len(nonSearchUses) > 0 {
+			// Execute search tools as side effect, but return only non-search content.
+			for _, tu := range searchUses {
+				_, execErr := o.executeSearch(ctx, tu)
+				if execErr != nil {
+					log.Warn("流式搜索执行失败（混合调用）", "tool", tu.Name, "error", execErr)
+				}
+			}
+			// Filter search tool_uses from the returned events.
 			allEvents = events
 			if lastUsage != nil {
 				allEvents = injectUsageIntoStart(allEvents, *lastUsage)
@@ -224,25 +239,7 @@ func (o *Orchestrator) StreamMessage(ctx context.Context, req anthropic.MessageR
 			return &staticStream{events: allEvents}, nil
 		}
 
-		// Execute searches and build follow-up request.
-		toolResults := make([]anthropic.ContentBlock, 0, len(searchUses))
-		for _, tu := range searchUses {
-			result, execErr := o.executeSearch(ctx, tu)
-			if execErr != nil {
-				log.Warn("流式搜索执行失败", "tool", tu.Name, "error", execErr)
-				toolResults = append(toolResults, anthropic.ContentBlock{
-					Type:      "tool_result",
-					ToolUseID: tu.ID,
-					Content:   json.RawMessage(fmt.Sprintf(`"Search error: %s"`, execErr.Error())),
-				})
-				continue
-			}
-			toolResults = append(toolResults, anthropic.ContentBlock{
-				Type:      "tool_result",
-				ToolUseID: tu.ID,
-				Content:   json.RawMessage(fmt.Sprintf(`"%s"`, escapeForJSON(result))),
-			})
-		}
+		toolResults := o.buildToolResults(ctx, searchUses)
 
 		req.Messages = append(req.Messages, anthropic.Message{
 			Role:    "assistant",
@@ -302,7 +299,7 @@ func (o *Orchestrator) executeWebSearch(ctx context.Context, raw json.RawMessage
 	if err != nil {
 		return "", err
 	}
-	return formatSearchResults(result), nil
+	return FormatTavilyResults(result), nil
 }
 
 func (o *Orchestrator) executeWebFetch(ctx context.Context, raw json.RawMessage) (string, error) {
@@ -327,7 +324,37 @@ func (o *Orchestrator) executeWebFetch(ctx context.Context, raw json.RawMessage)
 	if err != nil {
 		return "", err
 	}
-	return formatFirecrawlResult(result), nil
+	return FormatFirecrawlResult(result), nil
+}
+
+// isSearchTool returns true if the tool name is a registered search handler.
+func (o *Orchestrator) isSearchTool(name string) bool {
+	_, ok := o.toolHandlers[name]
+	return ok
+}
+
+// buildToolResults executes search/fetch for each tool use and returns tool_result blocks.
+func (o *Orchestrator) buildToolResults(ctx context.Context, searchUses []anthropic.ContentBlock) []anthropic.ContentBlock {
+	log := slog.Default()
+	results := make([]anthropic.ContentBlock, 0, len(searchUses))
+	for _, tu := range searchUses {
+		result, execErr := o.executeSearch(ctx, tu)
+		if execErr != nil {
+			log.Warn("搜索执行失败", "tool", tu.Name, "error", execErr)
+			results = append(results, anthropic.ContentBlock{
+				Type:      "tool_result",
+				ToolUseID: tu.ID,
+				Content:   json.RawMessage(fmt.Sprintf(`"Search error: %s"`, execErr.Error())),
+			})
+			continue
+		}
+		results = append(results, anthropic.ContentBlock{
+			Type:      "tool_result",
+			ToolUseID: tu.ID,
+			Content:   json.RawMessage(fmt.Sprintf(`"%s"`, escapeForJSON(result))),
+		})
+	}
+	return results
 }
 
 // filterSearchTools returns tool_use blocks that are registered search handlers.
@@ -341,14 +368,14 @@ func (o *Orchestrator) filterSearchTools(toolUses []anthropic.ContentBlock) []an
 	return searchUses
 }
 
-// formatSearchResults formats search results as a readable text block.
-func formatSearchResults(result *SearchResult) string {
+// FormatTavilyResults formats provider-neutral search results as a readable text block.
+func FormatTavilyResults(result *SearchResult) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Search results for %q:\n\n", result.Query))
 
 	if result.Answer != "" {
 		b.WriteString("Answer: ")
-		b.WriteString(truncate(result.Answer, 2000))
+		b.WriteString(Truncate(result.Answer, 2000))
 		b.WriteString("\n\n")
 	}
 
@@ -358,7 +385,7 @@ func formatSearchResults(result *SearchResult) string {
 		}
 		b.WriteString(fmt.Sprintf("%d. [%s](%s)\n", i+1, item.Title, item.URL))
 		b.WriteString(fmt.Sprintf("   Score: %.2f\n", item.Score))
-		b.WriteString(fmt.Sprintf("   %s\n\n", truncate(item.Content, 500)))
+		b.WriteString(fmt.Sprintf("   %s\n\n", Truncate(item.Content, 500)))
 	}
 	return b.String()
 }
@@ -366,17 +393,17 @@ func formatSearchResults(result *SearchResult) string {
 // formatTavilyResults is kept for callers/tests that still use the historical
 // function name; it now formats provider-neutral search results.
 func formatTavilyResults(result *SearchResult) string {
-	return formatSearchResults(result)
+	return FormatTavilyResults(result)
 }
 
 // formatFirecrawlResult formats Firecrawl scrape results as a readable text block.
-func formatFirecrawlResult(result *FetchResult) string {
+func FormatFirecrawlResult(result *FetchResult) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Content from %s:\n\n", result.Data.Metadata.SourceURL))
 	if result.Data.Metadata.Title != "" {
 		b.WriteString(fmt.Sprintf("Title: %s\n\n", result.Data.Metadata.Title))
 	}
-	b.WriteString(truncate(result.Data.Markdown, 8000))
+	b.WriteString(Truncate(result.Data.Markdown, 8000))
 	return b.String()
 }
 
@@ -585,7 +612,7 @@ func (s *staticStream) Close() error {
 	return nil
 }
 
-func truncate(s string, maxLen int) string {
+func Truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
@@ -593,11 +620,17 @@ func truncate(s string, maxLen int) string {
 }
 
 func escapeForJSON(s string) string {
-	// Escape backslashes and double quotes for embedding in JSON strings.
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	s = strings.ReplaceAll(s, "\r", "\\r")
-	s = strings.ReplaceAll(s, "\t", "\\t")
-	return s
+	// Use json.Marshal for proper Unicode/control character escaping.
+	// The go standard library handles all escaping rules according to RFC 8259.
+	encoded, err := json.Marshal(s)
+	if err != nil {
+		return s
+	}
+	// json.Marshal returns a quoted JSON string. Strip the surrounding quotes
+	// for embedding in the tool_result content template.
+	raw := string(encoded)
+	if len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+		return raw[1 : len(raw)-1]
+	}
+	return raw
 }

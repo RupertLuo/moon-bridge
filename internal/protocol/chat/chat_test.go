@@ -351,6 +351,62 @@ func TestTypes_StreamOptions_JSON(t *testing.T) {
 	}
 }
 
+// TestAdapter_ReasoningEffort_FromOpenAIExtensions verifies that
+// req.Extensions["openai"]["reasoning"]["effort"] (set by the OpenAI Responses
+// adapter when the client sends {"reasoning":{"effort":"high"}}) is propagated
+// to the outbound Chat Completions body as the standard reasoning_effort field.
+func TestAdapter_ReasoningEffort_FromOpenAIExtensions(t *testing.T) {
+	adapter := newTestAdapter()
+	core := &format.CoreRequest{
+		Model:    "deepseek-v4-pro",
+		Messages: []format.CoreMessage{{Role: "user", Content: []format.CoreContentBlock{{Type: "text", Text: "hi"}}}},
+		Extensions: map[string]any{
+			"openai": map[string]any{
+				"reasoning": map[string]any{"effort": "high"},
+			},
+		},
+	}
+	upstream, err := adapter.FromCoreRequest(context.Background(), core)
+	if err != nil {
+		t.Fatalf("FromCoreRequest: %v", err)
+	}
+	chatReq, ok := upstream.(*chat.ChatRequest)
+	if !ok {
+		t.Fatalf("upstream type = %T, want *chat.ChatRequest", upstream)
+	}
+	if chatReq.ReasoningEffort != "high" {
+		t.Errorf("ReasoningEffort = %q, want %q", chatReq.ReasoningEffort, "high")
+	}
+	// Confirm the field serializes to the OpenAI-standard JSON key.
+	data, err := json.Marshal(chatReq)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"reasoning_effort":"high"`) {
+		t.Errorf("outbound body missing reasoning_effort: %s", data)
+	}
+}
+
+func TestAdapter_ReasoningEffort_Absent_OmitsField(t *testing.T) {
+	adapter := newTestAdapter()
+	core := &format.CoreRequest{
+		Model:    "deepseek-v4-pro",
+		Messages: []format.CoreMessage{{Role: "user", Content: []format.CoreContentBlock{{Type: "text", Text: "hi"}}}},
+	}
+	upstream, err := adapter.FromCoreRequest(context.Background(), core)
+	if err != nil {
+		t.Fatalf("FromCoreRequest: %v", err)
+	}
+	chatReq := upstream.(*chat.ChatRequest)
+	if chatReq.ReasoningEffort != "" {
+		t.Errorf("ReasoningEffort = %q, want empty when client did not request it", chatReq.ReasoningEffort)
+	}
+	data, _ := json.Marshal(chatReq)
+	if strings.Contains(string(data), "reasoning_effort") {
+		t.Errorf("body should not include reasoning_effort when unset: %s", data)
+	}
+}
+
 func TestTypes_FunctionDef_Strict(t *testing.T) {
 	strict := true
 	in := chat.FunctionDef{
@@ -1674,7 +1730,7 @@ func TestToCoreStream_BasicDelta(t *testing.T) {
 	}
 
 	var evts []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		evts = append(evts, e)
 	}
 
@@ -1734,7 +1790,7 @@ func TestToCoreStream_ToolCallArgsDelta(t *testing.T) {
 	}
 
 	var evts []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		evts = append(evts, e)
 	}
 
@@ -1763,7 +1819,7 @@ func TestToCoreStream_EmptyChunk(t *testing.T) {
 	}
 
 	var evts []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		evts = append(evts, e)
 	}
 
@@ -1786,7 +1842,7 @@ func TestToCoreStream_NoContent(t *testing.T) {
 	}
 
 	var evts []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		evts = append(evts, e)
 	}
 
@@ -1813,7 +1869,7 @@ func TestToCoreStream_ContextCancel(t *testing.T) {
 
 	// Events channel should close immediately due to cancelled context.
 	var evts []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		evts = append(evts, e)
 	}
 	if len(evts) != 0 {
@@ -1859,7 +1915,7 @@ func TestToCoreStream_MultiChoice(t *testing.T) {
 	}
 
 	var evts []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		evts = append(evts, e)
 	}
 
@@ -2234,7 +2290,7 @@ func TestToCoreStream_WithModel(t *testing.T) {
 	}
 
 	var evts []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		evts = append(evts, e)
 	}
 	if len(evts) < 4 {
@@ -2262,7 +2318,7 @@ func TestToCoreStream_ContentBlockStartedNoRole(t *testing.T) {
 	}
 
 	var evts []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		evts = append(evts, e)
 	}
 	if len(evts) < 3 {
@@ -2314,7 +2370,7 @@ func TestToCoreStream_ToolCallArgsDeltaByPosition(t *testing.T) {
 		t.Fatal(err)
 	}
 	var deltas []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		if e.Type == format.CoreToolCallArgsDelta {
 			deltas = append(deltas, e)
 		}
@@ -2372,7 +2428,7 @@ func TestToCoreStream_ToolCallArgsDeltaRespectsExplicitToolIndex(t *testing.T) {
 	}
 	var started []format.CoreStreamEvent
 	var deltas []format.CoreStreamEvent
-	for e := range events {
+	for e := range events.Events {
 		if e.Type == format.CoreContentBlockStarted && e.ContentBlock != nil && e.ContentBlock.Type == "tool_use" {
 			started = append(started, e)
 		}
