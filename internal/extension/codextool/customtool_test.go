@@ -24,6 +24,39 @@ func TestNamespacedToolNamePreservesExistingSeparator(t *testing.T) {
 	}
 }
 
+func TestOutputItemFromBlockRestoresUniqueBareFunctionAlias(t *testing.T) {
+	toolMap := ToolMap{
+		"mcp__catalyst_search__read_url": {
+			Kind:       ToolFunction,
+			OpenAIName: "read_url",
+			Namespace:  "mcp__catalyst_search__",
+		},
+	}
+
+	itemType, itemName, namespace, _, _, _ := OutputItemFromBlock(
+		"read_url",
+		json.RawMessage(`{"url":"https://example.com/report"}`),
+		toolMap,
+	)
+
+	if itemType != "function_call" || itemName != "read_url" || namespace != "mcp__catalyst_search__" {
+		t.Fatalf("bare alias restored as %q/%q/%q, want function_call/mcp__catalyst_search__/read_url", itemType, namespace, itemName)
+	}
+}
+
+func TestOutputItemFromBlockRejectsAmbiguousBareFunctionAlias(t *testing.T) {
+	toolMap := ToolMap{
+		"mcp__catalyst_search__read_url": {Kind: ToolFunction, OpenAIName: "read_url", Namespace: "mcp__catalyst_search__"},
+		"mcp__other__read_url":           {Kind: ToolFunction, OpenAIName: "read_url", Namespace: "mcp__other__"},
+	}
+
+	_, itemName, namespace, _, _, _ := OutputItemFromBlock("read_url", json.RawMessage(`{}`), toolMap)
+
+	if itemName != "read_url" || namespace != "" {
+		t.Fatalf("ambiguous bare alias restored as %q/%q, want unqualified read_url", namespace, itemName)
+	}
+}
+
 func TestRebuildApplyPatchGrammarUpdateFileIncludesValidPatchMarkers(t *testing.T) {
 	input := json.RawMessage(`{
 		"path":"internal/example.go",
