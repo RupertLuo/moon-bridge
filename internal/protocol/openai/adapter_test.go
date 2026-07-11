@@ -189,7 +189,13 @@ func TestFromCoreStream_PreservesMCPReadURLNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for event := range streamAny.(<-chan openai.StreamEvent) {
+	var stream <-chan openai.StreamEvent
+	if result, ok := streamAny.(*openai.OpenAIStreamResult); ok {
+		stream = result.Chan()
+	} else {
+		stream = streamAny.(<-chan openai.StreamEvent)
+	}
+	for event := range stream {
 		if event.Event != "response.output_item.added" {
 			continue
 		}
