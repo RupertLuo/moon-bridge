@@ -72,13 +72,29 @@ func (m ToolMap) Encode() map[string]any {
 	return out
 }
 
-// Lookup returns the ToolSpec for an expanded tool name.
+// Lookup returns the ToolSpec for an expanded tool name. Some upstream models
+// occasionally echo the original function name instead of the expanded MCP
+// name; recover that alias only when it identifies one function unambiguously.
 func (m ToolMap) Lookup(name string) (ToolSpec, bool) {
 	if m == nil {
 		return ToolSpec{}, false
 	}
-	spec, ok := m[name]
-	return spec, ok
+	if spec, ok := m[name]; ok {
+		return spec, true
+	}
+	var match ToolSpec
+	found := false
+	for _, spec := range m {
+		if spec.Kind != ToolFunction || spec.OpenAIName != name {
+			continue
+		}
+		if found {
+			return ToolSpec{}, false
+		}
+		match = spec
+		found = true
+	}
+	return match, found
 }
 
 // DecodeToolMapFromExtensions extracts the "codex_tool_map" entry from

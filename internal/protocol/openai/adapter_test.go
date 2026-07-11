@@ -95,13 +95,22 @@ func TestToCoreRequest_PreservesFunctionToolNamespaceForMCPRouting(t *testing.T)
 	if err := json.Unmarshal([]byte(`{
 		"model":"deepseek-v4-pro",
 		"input":"search the web",
-		"tools":[{
-			"type":"function",
-			"name":"search",
-			"namespace":"mcp__catalyst_search",
-			"description":"Search public sources through Catalyst.",
-			"parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}
-		}]
+		"tools":[
+			{
+				"type":"function",
+				"name":"search",
+				"namespace":"mcp__catalyst_search__",
+				"description":"Search public sources through Catalyst.",
+				"parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}
+			},
+			{
+				"type":"function",
+				"name":"read_url",
+				"namespace":"mcp__catalyst_search__",
+				"description":"Read one public URL through Catalyst.",
+				"parameters":{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}
+			}
+		]
 	}`), &req); err != nil {
 		t.Fatal(err)
 	}
@@ -110,24 +119,24 @@ func TestToCoreRequest_PreservesFunctionToolNamespaceForMCPRouting(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(coreReq.Tools) != 1 {
-		t.Fatalf("tools = %d, want 1: %+v", len(coreReq.Tools), coreReq.Tools)
+	if len(coreReq.Tools) != 2 {
+		t.Fatalf("tools = %d, want 2: %+v", len(coreReq.Tools), coreReq.Tools)
 	}
-	if coreReq.Tools[0].Name != "mcp__catalyst_search_search" {
-		t.Fatalf("provider tool name = %q, want namespaced MCP search", coreReq.Tools[0].Name)
+	if coreReq.Tools[0].Name != "mcp__catalyst_search__search" || coreReq.Tools[1].Name != "mcp__catalyst_search__read_url" {
+		t.Fatalf("provider tool names = %q/%q, want canonical MCP aliases", coreReq.Tools[0].Name, coreReq.Tools[1].Name)
 	}
 
 	coreResp := &format.CoreResponse{
-		ID:         "resp_mcp_search",
+		ID:         "resp_mcp_read_url",
 		Status:     "completed",
 		Extensions: coreReq.Extensions,
 		Messages: []format.CoreMessage{{
 			Role: "assistant",
 			Content: []format.CoreContentBlock{{
 				Type:      "tool_use",
-				ToolUseID: "call_mcp_search",
-				ToolName:  coreReq.Tools[0].Name,
-				ToolInput: json.RawMessage(`{"query":"World Cup"}`),
+				ToolUseID: "call_mcp_read_url",
+				ToolName:  "mcp__catalyst_search__read_url",
+				ToolInput: json.RawMessage(`{"url":"https://example.com/report"}`),
 			}},
 		}},
 	}
@@ -139,9 +148,61 @@ func TestToCoreRequest_PreservesFunctionToolNamespaceForMCPRouting(t *testing.T)
 	if len(resp.Output) != 1 {
 		t.Fatalf("output = %d, want 1: %+v", len(resp.Output), resp.Output)
 	}
-	if resp.Output[0].Name != "search" || resp.Output[0].Namespace != "mcp__catalyst_search" {
-		t.Fatalf("MCP function identity = %q/%q, want mcp__catalyst_search/search", resp.Output[0].Namespace, resp.Output[0].Name)
+	if resp.Output[0].Name != "read_url" || resp.Output[0].Namespace != "mcp__catalyst_search__" {
+		t.Fatalf("MCP function identity = %q/%q, want mcp__catalyst_search__/read_url", resp.Output[0].Namespace, resp.Output[0].Name)
 	}
+}
+
+func TestFromCoreStream_PreservesMCPReadURLNamespace(t *testing.T) {
+	adapter := openai.NewOpenAIAdapter(format.CorePluginHooks{})
+	var req openai.ResponsesRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"deepseek-v4-pro",
+		"input":"read the url",
+		"tools":[{
+			"type":"function",
+			"name":"read_url",
+			"namespace":"mcp__catalyst_search__",
+			"parameters":{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}
+		}]
+	}`), &req); err != nil {
+		t.Fatal(err)
+	}
+	coreReq, err := adapter.ToCoreRequest(context.Background(), &req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evCh := make(chan format.CoreStreamEvent, 3)
+	evCh <- format.CoreStreamEvent{
+		Type:  format.CoreContentBlockStarted,
+		Index: 0,
+		ContentBlock: &format.CoreContentBlock{
+			Type:      "tool_use",
+			ToolUseID: "call_read_url",
+			ToolName:  "mcp__catalyst_search__read_url",
+		},
+	}
+	evCh <- format.CoreStreamEvent{Type: format.CoreEventCompleted, Status: "completed"}
+	close(evCh)
+
+	streamAny, err := adapter.FromCoreStream(context.Background(), coreReq, evCh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range streamAny.(<-chan openai.StreamEvent) {
+		if event.Event != "response.output_item.added" {
+			continue
+		}
+		data, ok := event.Data.(openai.OutputItemEvent)
+		if !ok || data.Item.Type != "function_call" {
+			continue
+		}
+		if data.Item.Name != "read_url" || data.Item.Namespace != "mcp__catalyst_search__" {
+			t.Fatalf("stream MCP identity = %q/%q, want mcp__catalyst_search__/read_url", data.Item.Namespace, data.Item.Name)
+		}
+		return
+	}
+	t.Fatal("stream did not emit an MCP function_call output item")
 }
 
 func TestToCoreRequest_FunctionCallOutputImage(t *testing.T) {
