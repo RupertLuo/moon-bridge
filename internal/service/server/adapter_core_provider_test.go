@@ -56,6 +56,48 @@ func TestCoreResponseToStreamEventsEmitsTextAndUsage(t *testing.T) {
 	}
 }
 
+func TestCoreResponseToStreamEventsPreservesToolUse(t *testing.T) {
+	resp := &format.CoreResponse{
+		ID:     "resp_visual_tool",
+		Status: "completed",
+		Model:  "deepseek-v4-pro",
+		Messages: []format.CoreMessage{{
+			Role: "assistant",
+			Content: []format.CoreContentBlock{
+				{Type: "reasoning", ReasoningText: "need to inspect files before generating HTML"},
+				{
+					Type:      "tool_use",
+					ToolUseID: "call_exec",
+					ToolName:  "exec_command",
+					ToolInput: json.RawMessage(`{"cmd":"ls"}`),
+				},
+			},
+		}},
+	}
+
+	events := collectCoreStreamEvents(coreResponseToStreamEvents(context.Background(), resp))
+	var sawToolStart bool
+	var sawToolArgsDone bool
+	for _, event := range events {
+		if event.Type == format.CoreContentBlockStarted &&
+			event.ContentBlock != nil &&
+			event.ContentBlock.Type == "tool_use" &&
+			event.ContentBlock.ToolUseID == "call_exec" &&
+			event.ContentBlock.ToolName == "exec_command" {
+			sawToolStart = true
+		}
+		if event.Type == format.CoreToolCallArgsDone && event.Delta == `{"cmd":"ls"}` {
+			sawToolArgsDone = true
+		}
+	}
+	if !sawToolStart {
+		t.Fatal("visual stream conversion dropped the tool_use block")
+	}
+	if !sawToolArgsDone {
+		t.Fatal("visual stream conversion dropped the tool arguments")
+	}
+}
+
 func TestCoreRequestHasImage(t *testing.T) {
 	if coreRequestHasImage(&format.CoreRequest{
 		Messages: []format.CoreMessage{{
